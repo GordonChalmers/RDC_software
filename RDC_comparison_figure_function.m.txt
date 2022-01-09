@@ -1,0 +1,119 @@
+
+%% Gordon Chalmers
+%% Montelione lab, CBIS, RPI
+%%
+%% This function will take in a data structure and make a figure of the comparison of measured RDCs
+%%  and back calculated RDCs.  The Pearson correlation coefficient and rmsd are included in the figure. 
+%%  Outliers of abs(measured_RDC-calculated_RDC)>2*sigma Hz are shown in the figure with x's, also any residues 
+%%  with 2*sigma > abs(measured_RDC-calculated_RDC) > sigma are shown with squares.
+%%
+%% Input is a data struct with RDC information (can be used from the calculate_RDC_info_function.m output)
+%%  data structure:
+%%   measured RDCs
+%%   back calculated RDCs
+%%   residues used in back calculation
+%%   rmsd (not necessary, but instead of duplicating code
+%%
+%%   protein_info_name - what is in the title of the figure 
+%%   figure_file - file name (absolute path is prefered), jpeg will be added to the file name
+%%
+%% Output:
+%%   jpeg figure of comparison between measured and calculated RDC'
+%%
+
+function []=RDC_comparison_figure(input_RDC_struct,protein_info_name,figure_file)
+
+clear m1;
+clear m2;
+clear measured_RDC;
+clear calculated_RDC;
+
+measured_RDC=input_RDC_struct.measured_RDC;
+calculated_RDC=input_RDC_struct.calculated_RDC;
+residue_calculation=input_RDC_struct.residues;
+rmsd=input_RDC_struct.RMSD;
+
+total_measurements=size(residue_calculation,1);
+
+m1=calculated_RDC;
+m2=measured_RDC';
+
+index=0;
+
+% get rid of zeros
+for i=1:total_measurements
+    if calculated_RDC(i)~=0
+        index=index+1;
+        m1(index)=calculated_RDC(i);
+        m2(index)=measured_RDC(i);
+    end
+end
+
+xvector=zeros(10,1);
+index=0;
+
+for i=1:total_measurements
+    if residue_calculation(i)~=0
+        index=index+1;
+        xvector(index)=residue_calculation(i);
+    end
+end
+
+%% line of outliers
+twosigmahertzhertznote=zeros(1,1);
+onesigmahertznote=zeros(1,1);
+xtwosigmahertz=size(1,1);
+xonesigmahertz=size(1,1);
+index=0;
+
+onesigma=std(m1-m2);
+qfactor=std(m1-m2)/std(m2);
+
+%% line of >2 sigma RDC difference
+for i=1:total_measurements
+    if abs(calculated_RDC(i)-measured_RDC(i))>2*onesigma;
+        index=index+1;
+        xtwosigmahertz(index)=residue_calculation(i);
+        twosigmahertznote(index)=20;
+    end
+end
+
+index=0;
+
+%% line of >1 sigma RDC difference
+
+for i=1:total_measurements
+    if abs(calculated_RDC(i)-measured_RDC(i))>onesigma
+        if abs(calculated_RDC(i)-measured_RDC(i))<2*onesigma
+            index=index+1;
+            xonesigmahertz(index)=residue_calculation(i);
+            onesigmahertznote(index)=18;
+        end
+    end
+end
+
+
+plot(xvector,m1)
+hold on
+plot(xvector,m2)
+hold on;
+plot(xonesigmahertz,onesigmahertznote,'b--S','Linestyle','none','MarkerSize',5);
+hold on
+plot(xtwosigmahertz,twosigmahertznote,'b--x','Linestyle','none','MarkerSize',5);
+hold off
+
+pearson_first=corrcoef(calculated_RDC,measured_RDC);
+pearson=pearson_first(1,2);
+
+texttitle=['RDC comparison - ',protein_info_name];
+txt=append('rmsd',{' '},num2str(rmsd),{' '},'sigma',{' '},num2str(onesigma));
+txt2=append('Pearson coeff',{' '},num2str(pearson),{' '},'Q-factor',{' '},num2str(qfactor));
+
+title({texttitle,txt{1},txt2{1}});
+xlabel("residue number");
+ylabel("rdc in Hz");
+legend('calculated','measured','1 sigma Hz','2 sigma Hz','Location','Southwest');
+
+fig_name=strcat(figure_file,'.jpeg');
+        
+saveas(gcf,char(fig_name))

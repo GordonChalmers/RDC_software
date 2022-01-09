@@ -1,0 +1,170 @@
+%% Gordon Chalmers
+%% Montelione lab, CBIS, RPI
+%%
+%% This function calculates RDC information from data and a pdb.
+%%
+%% Inputs:
+%% RDC data - RDC
+%% RDC resdues - RDC_residue
+%% pdb - pdbstruct (matlab data structure)
+%% model_number - model to be used in pdb structure
+%%
+%% Outputs:
+%% rdc - back calculated RDCs
+%% rmsd - total rmsd of measurement to back calculated
+%% residue_calculation - which residues were used in the back calculation
+%% D - which measurements in the data were used in the back calculation, from the residues in residue_calculation
+%% yy - order parameters (Syy,Szz,Sxy,Sxz,Syz)
+%% tensor - Saupe order tensor
+%% V,D - diagonalization tensor = V D V^{-1}
+%% euler angles - rotation to principle order frame, in degrees
+%%              - rotation angles (degrees and axis order z-rot, y-rot, x-rot)
+%%
+
+function [out_struct] = calculate_RDC_info_function(RDC,RDC_residue,pdbstruct,model_number)
+
+%% function will process one model
+total_atoms=size(pdbstruct.Model(model_number).Atom,2);
+total_residues=pdbstruct.Model(model_number).Atom(total_atoms).resSeq;
+
+%% initialize coordinate arrays
+
+N_coordinates=zeros(total_residues,3);
+H_coordinates=zeros(total_residues,3);
+coordinates=zeros(total_residues,3);
+residue=zeros(total_residues,1);
+residue_there=zeros(total_residues,1);
+
+%% get coordinates from struct
+for i=1:total_atoms
+    if strcmp(pdbstruct.Model(model_number).Atom(i).AtomName,'N')==1
+        N_coordinates(pdbstruct.Model(model_number).Atom(i).resSeq,1)=pdbstruct.Model(model_number).Atom(i).X;
+        N_coordinates(pdbstruct.Model(model_number).Atom(i).resSeq,2)=pdbstruct.Model(model_number).Atom(i).Y;
+        N_coordinates(pdbstruct.Model(model_number).Atom(i).resSeq,3)=pdbstruct.Model(model_number).Atom(i).Z;
+        
+        residue(pdbstruct.Model(model_number).Atom(i).resSeq)=pdbstruct.Model(model_number).Atom(i).resSeq;
+    end    
+    %%           end    
+end
+
+%% same for H's
+for i=1:total_atoms
+    if strcmp(pdbstruct.Model(model_number).Atom(i).AtomName,'H')==1
+        H_coordinates(pdbstruct.Model(model_number).Atom(i).resSeq,1)=pdbstruct.Model(model_number).Atom(i).X;
+        H_coordinates(pdbstruct.Model(model_number).Atom(i).resSeq,2)=pdbstruct.Model(model_number).Atom(i).Y;
+        H_coordinates(pdbstruct.Model(model_number).Atom(i).resSeq,3)=pdbstruct.Model(model_number).Atom(i).Z;
+    end
+end
+
+%% rdc back calculation requires difference vector - create vectors
+for i=1:total_residues
+    %% coordinates are in the pdbstruct    
+    if norm(H_coordinates(i,:))>0
+        if norm(N_coordinates(i,:))>0
+            coordinates(i,1)=N_coordinates(i,1)-H_coordinates(i,1);
+            coordinates(i,2)=N_coordinates(i,2)-H_coordinates(i,2);
+            coordinates(i,3)=N_coordinates(i,3)-H_coordinates(i,3);
+            residue_there(i)=1;
+        end
+    end
+end
+
+%% BACK CALCULATION routine
+
+%% D(:) are measured rdc's
+%% coordinates(i,:) are x,y,z N-H coordinates of ith assignment
+
+%% these have to be matched from
+%%     - pdbstruct coordinates
+%%     - measurements
+
+%% residue_there(i)==1 means the coordinates for residue(i) are there
+%% store the rdc's and which assigned residue
+measured_residue=zeros(size(RDC,1),1);
+non_trivial_coordinates=zeros(10,3);
+residue_calculation=zeros(10,1);
+D=zeros(1,10);
+
+%% relabel coordinates
+index=0;
+for i=1:size(RDC,1)
+    for j=1:size(residue)
+        if RDC_residue(i)==residue(j)
+            index=index+1;
+            non_trivial_coordinates(index,:)=coordinates(j,:);
+            D(index)=RDC(i);
+            residue_calculation(index)=residue(j);
+        end
+    end
+end
+
+%% order tensor calculation
+%% test if residue numbers are consistent, number_measurements>0
+number_measurements=index;
+rdc=zeros(10,1);
+Dmax=24350;
+a=zeros(number_measurements,5);
+b=zeros(1,number_measurements);
+
+%% the back calculation involves the order parameters
+for i=1:number_measurements
+    if non_trivial_coordinates(i,1)*non_trivial_coordinates(i,2)*non_trivial_coordinates(i,3)~=0
+        %% measured - match to residues
+        %% no scaling with order parameters from N-H bond
+        if D(i)~=999
+            %% order parameters are 1.0
+            %% order parameter corrections are 1.0, not included
+            a(i,1)=non_trivial_coordinates(i,2)*non_trivial_coordinates(i,2)-non_trivial_coordinates(i,1)*non_trivial_coordinates(i,1);
+            a(i,2)=non_trivial_coordinates(i,3)*non_trivial_coordinates(i,3)-non_trivial_coordinates(i,1)*non_trivial_coordinates(i,1);
+            a(i,3)=2*non_trivial_coordinates(i,1)*non_trivial_coordinates(i,2);
+            a(i,4)=2*non_trivial_coordinates(i,1)*non_trivial_coordinates(i,3);
+            a(i,5)=2*non_trivial_coordinates(i,2)*non_trivial_coordinates(i,3);
+                 
+            %% Ax=b  x is order tensor
+            b(i)=D(i)/Dmax*(non_trivial_coordinates(i,1)*non_trivial_coordinates(i,1)+non_trivial_coordinates(i,2)*non_trivial_coordinates(i,2)+non_trivial_coordinates(i,3)*non_trivial_coordinates(i,3))^(5/2);
+        end
+    end
+end
+
+%% singular value decomposition to find x
+rmsd=0;
+yy=lscov(a,b');   %% computing projection of matrix A on b, giving x
+
+%% back calculate RDCs
+for i=1:number_measurements
+    %% if there is a measured RDC
+    if D(i)~=999
+        y2x2=non_trivial_coordinates(i,2)*non_trivial_coordinates(i,2)-non_trivial_coordinates(i,1)*non_trivial_coordinates(i,1);        
+        z2x2=non_trivial_coordinates(i,3)*non_trivial_coordinates(i,3)-non_trivial_coordinates(i,1)*non_trivial_coordinates(i,1);
+        xy=2*non_trivial_coordinates(i,1)*non_trivial_coordinates(i,2);
+        xz=2*non_trivial_coordinates(i,1)*non_trivial_coordinates(i,3);
+        yz=2*non_trivial_coordinates(i,2)*non_trivial_coordinates(i,3);
+        
+        rdc(i)=Dmax/(norm(non_trivial_coordinates(i,:)))^5*(yy(1)*y2x2+yy(2)*z2x2+yy(3)*xy+yy(4)*xz+yy(5)*yz);
+        z=D(i)-rdc(i);
+        rmsd=rmsd+z*z;
+    end
+end
+
+%% normalize, taking into account the lack of 5 degrees of freedom.
+rmsd=sqrt(rmsd/number_measurements)*(number_measurements-5)/number_measurements;
+%% Saupe order tensor, order parameters (Syy,Szz,Sxy,Sxz,Syz)
+tensor=[1-yy(1)-yy(2) yy(3) yy(4); yy(3) yy(1) yy(5); yy(4) yy(5) yy(2)];
+%% diagonalization - V is rotation matrix
+[V_matrix,D_matrix]=eig(tensor);
+euler_angles=rotm2eul(V_matrix)*180/pi;
+
+%% structure output
+field1 = 'calculated_RDC';  value1 = rdc;
+field2 = 'RMSD';  value2 = rmsd;
+field3 = 'residues';  value3 = residue_calculation;
+field4 = 'measured_RDC';  value4 = D;
+field5 = 'order_parameters'; value5=yy;
+field6 = 'Saupe_order_tensor'; value6=tensor;
+field7 = 'rotation_matrix'; value7=V_matrix;
+field8 = 'eigenvalues'; value8=D_matrix;
+field9 = 'euler_angles'; value9=euler_angles;
+
+out_struct=struct(field1,value1,field2,value2,field3,value3,field4,value4,field5,value5,field6,value6,field7,value7,field8,value8,field9,value9);
+
+end
