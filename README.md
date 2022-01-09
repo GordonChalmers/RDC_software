@@ -11,4 +11,6 @@ Also available at
   https://montelionelab.chem.rpi.edu/rdc_database_150/index.htm
   
 These 2 scripts were used along with other scripts to create 2 databases of protein 
-NMR structures, of size 150 and 39 proteins.
+NMR structures, of size 150 and 39 proteins.  The first also has a version to include 
+a restricted set of residues from the deposited NMR structure, such as from a 'well-defined' 
+set of amino acids.
